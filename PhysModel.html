@@ -1,0 +1,819 @@
+<!DOCTYPE html>
+	<html>
+		<head>
+			<title>Light Rays: Paraboloid</title>
+			
+			<script src="./js/THREEx.DomEvents.js"></script>
+			<script src="./js/THREEx.WindowResize.js"></script>
+			<script src="./js/three.min.js"></script>
+			<!--<script src="./js/ThreeCSG.js"></script>-->
+			<script src="./js/Projector.js"></script>
+			<script src="./js/dat.gui.min.js"></script>
+			<script src="./js/TrackballControls.js"></script>
+			<script src="./js/CanvasRenderer.js"></script>
+			<script src="./js/Detector.js"></script>
+			<script src="./ParametricGeometries.js"></script>
+			<link rel="stylesheet" href="./css/laser.css">
+		</head>
+		<body>
+			<script>
+				
+			var scene = new THREE.Scene();
+		window.onload = function(){
+			var container;
+				container = document.createElement( 'div' );
+				document.body.appendChild(container);
+				var increment= Math.PI/200;
+			var mm = .1, meters = 100;	
+			var aspect = window.innerWidth/ window.innerHeight;
+			var renderer = Detector.webgl? new THREE.WebGLRenderer({antialias:true}): new THREE.CanvasRenderer();
+				renderer.setSize( window.innerWidth, window.innerHeight );
+				container.appendChild( renderer.domElement );
+			renderer.sortObjects=false;
+			var camera = new THREE.PerspectiveCamera(90, aspect, mm, 51*meters);
+			//var camera = new THREE.OrthographicCamera(meters,meters, meters, meters, .1,10 );
+				camera.position.set(.6*meters,500*mm, 1.5*meters);
+				//console.log(window.width);
+				camera.lookAt(new THREE.Vector3(0,0,0));
+			var domEvents = new THREEx.DomEvents(camera, renderer.domElement);
+			var controls = new THREE.TrackballControls( camera,  renderer.domElement );
+				controls.enabled = true;
+				controls.rotateSpeed = 1.0;
+				controls.zoomSpeed = 1.2;
+				controls.panSpeed = 0.8;
+				controls.noZoom = false;
+				controls.noPan = false;
+				controls.noRotate = false;
+				controls.staticMoving = false;
+				controls.dynamicDampingFactor = 0.3;
+			var windowResize = THREEx.WindowResize(renderer, camera);
+			var light = [];
+			var x_axis = new THREE.Vector3(1,0,0);
+			var y_axis = new THREE.Vector3(0,1,0);
+			var z_axis = new THREE.Vector3(0,0,1);
+			var gui = new dat.GUI();
+			var objects =[];
+			var plane = new THREE.Plane();
+			var raycaster = new THREE.Raycaster();
+			var mouse = new THREE.Vector2(),
+				offset = new THREE.Vector3(),
+				intersection = new THREE.Vector3(),
+			//	rotation = new THREE.Euler(),
+				INTERSECTED, SELECTED;
+			var step = 5;
+			var lenses =[], lasers=[];
+			var deleteMode = false;
+			var nevershown = true;
+			var guiParams = {
+				orbitControls:true,
+				resetControls:function(){
+					controls.reset();
+				},
+				newLaser:function(){
+					lasers.push(createLaser(nohandle=false, color = 0xFFFFFF ));
+					step++;
+					lasers[lasers.length-1].rotation.y = Math.PI/2;
+					for(var i=0; i<lasers[lasers.length-1].children.length;i++){
+						objects.push(lasers[lasers.length-1].children[i]);
+					}
+					scene.add(lasers[lasers.length-1] );
+				},
+				remove:function(){
+					deleteMode =true;
+					//console.log(renderer.domElement.style.cursor);
+					renderer.domElement.style.cursor = "crosshair";
+				},
+			};
+			
+			var lensParam={
+				radius: 500*mm,
+				h1: 100*mm,
+				concaveOne: false,
+				h2: 100*mm,
+				concaveTwo: false,
+				thick: 0,
+				n:1.5,
+				mirrored: false
+			};
+			var camFolder = gui.addFolder('Camera');
+					var camControls = camFolder.add(guiParams, 'orbitControls').name("Toggle Controls").listen();
+					camFolder.add(guiParams, 'resetControls').name("Reset Camera");
+			gui.add(guiParams, 'newLaser').name("Create Laser");
+			gui.add(guiParams, 'remove').name("Delete");
+			//gui.add(guiParams, 'newLens').name("Create Lens");
+			var lensFolder = gui.addFolder('Lens');
+				var mir = lensFolder.add(lensParam, 'mirrored').name("mirror");
+				var conc1 = lensFolder.add(lensParam, 'concaveOne').name("Concave");
+				var h1 = lensFolder.add(lensParam, 'h1',0,2*meters).step(mm).name("height1").listen();
+				var conc2 = lensFolder.add(lensParam, 'concaveTwo').name("Concave");
+				var h2 = lensFolder.add(lensParam, 'h2',0,2*meters).step(mm).name("height2").listen();
+				var thickness = lensFolder.add(lensParam, 'thick',0,2*meters).step(mm).name("lens thickness").listen();
+				var n = lensFolder.add(lensParam, 'n',.5,2).step(.1).name("n");
+				var radius = lensFolder.add(lensParam, 'radius',250*mm,1.5*meters).step(10*mm).name("lens radius").listen();
+			var axisHelper = new THREE.AxisHelper(200);
+		//	scene.add(axisHelper);
+			
+			light.push(new THREE.PointLight(0xffffff,3,0));
+			light[0].position.set(5*meters,5*meters,2*meters);
+			light.push(new THREE.PointLight(0xffffff,3,0));
+			light[1].position.set(-5*meters,0,2*meters);
+			scene.add(light[1], light[0]);
+			
+			var sky = makeSky();
+			var screen = makeScreen();
+			scene.add(screen);
+	
+			scene.add(camera);
+			scene.add( sky);
+		
+			lasers[0] = createLaser(nohandle =false);
+			lenses[0] = createLens();
+			objects.push(screen.children[0]);
+			for(var i=0; i<lasers[0].children.length;i++){
+				objects.push(lasers[0].children[i]);
+				
+			}
+		/*	for(var i =0; i<lenses[0].children.length;i++){
+				objects.push(lenses[0].children[i]);
+			}
+		*/	
+		
+			lasers[0].rotation.y =Math.PI/2;
+		
+			scene.add(lasers[0], lenses[0]);
+			
+			initializeListeners();
+			updatePhysics();
+			render();
+			
+			/*********Functions*********/
+			
+			function makeScreen(){
+				var geom = new THREE.BoxGeometry(3*meters,3*meters,3*mm);
+				var mat = new THREE.MeshBasicMaterial({color:0x000000});
+				geom.rotateY(Math.PI/2);
+				var obj = new THREE.Object3D();
+				obj.add(new THREE.Mesh(geom,mat));
+				obj.famType = "screen";
+				return obj.translateX(1.5*meters);
+			}
+			
+			function makeSky(){
+				var skyGeom = new THREE.BoxGeometry(50*meters, 50*meters, 50*meters);
+				var skyMat = new THREE.MeshBasicMaterial({
+					//color:0x87CEFF,
+					color:0x3F29C0,
+					side:THREE.DoubleSide,
+					shading:THREE.FlatShading
+				});
+				
+				return new THREE.Mesh(skyGeom, skyMat);
+			}
+			
+			function removeObject(obj){
+				
+				if(obj.famType == "laser"){
+					lasers.splice(lasers.indexOf(obj),1);
+					clearResPath(obj);
+					scene.remove(obj);
+					for(var i =0; i< obj.children.length; i++){
+							obj.children[i].geometry.dispose();
+							obj.children[i].material.dispose();
+					}
+				}
+				
+				updateLens();
+				deleteMode = false;
+				renderer.domElement.style.cursor = "";
+			}
+			 
+			function initializeListeners(){
+				camControls.onChange(function(value){
+					controls.enabled = value;
+				});
+				
+				h1.onChange(updateLens);
+				h2.onChange(updateLens);
+				mir.onChange(
+					updateLens
+				);
+				n.onChange(updateLens);
+				conc1.onChange(updateLens);
+				conc2.onChange(updateLens);
+				radius.onChange(updateLens);
+				thickness.onChange(updateLens);
+				renderer.domElement.addEventListener( 'mousemove', onDocumentMouseMove, false );
+				renderer.domElement.addEventListener( 'mousedown', onDocumentMouseDown, false );
+				renderer.domElement.addEventListener( 'mouseup', onDocumentMouseUp, false );
+				//renderer.domElement.addEventListener( 'click' , onDocumentClick, false);
+				
+			}
+			
+			
+			
+			function updateLens(){
+				{
+					if(lensParam.concaveOne ){
+						if(lensParam.concaveTwo && lensParam.thick < lensParam.h1+lensParam.h2){
+							lensParam.thick = lensParam.h1+lensParam.h2;
+						}
+						else if(lensParam.thick < lensParam.h1 - lensParam.h2){
+							lensParam.thick = lensParam.h1-lensParam.h2;
+						}
+					}
+					else if(lensParam.concaveTwo && lensParam.thick < lensParam.h2 - lensParam.h1){
+						lensParam.thick = lensParam.h2 - lensParam.h1;
+					}	
+				}
+				var tempPos = lenses[0].position;
+				scene.remove(lenses[0]);
+				if(scene.rotBox){removeRotBox();}
+				for(var i =0; i< lenses[0].children.length; i++){
+					lenses[0].children[i].children[0].geometry.dispose();
+					lenses[0].children[i].children[0].material.dispose();
+					
+				}
+				lenses[0] = createLens();
+				objects = [];
+				for(var j =0; j<lasers.length; j++){
+					for(var i=0; i<lasers[j].children.length;i++){
+						objects.push(lasers[j].children[i]);
+				
+					}
+				}
+				//for(var i =0; i<lenses[0].children.length;i++){
+			//		objects.push(lenses[0].children[i]);
+			//	}
+				objects.push(screen.children[0]);
+				lenses[0].position.copy(tempPos);
+				scene.add(lenses[0]);
+				updatePhysics();		
+			}
+		
+			
+			function createRotBox(target){
+				var rotBox = new THREE.Object3D();
+			
+				var controlGeom = new THREE.SphereGeometry(50*mm);
+				var mat = new THREE.MeshLambertMaterial({color:0x2c2c2c, emissive: 0x2c2c2c});
+				var mesh = new THREE.Mesh(controlGeom.rotateX(Math.PI/2), mat);
+				objects.push(mesh);
+				mesh.parent=rotBox;
+				rotBox.add(mesh);
+				rotBox.position.copy(target.position);
+				rotBox.translateOnAxis(target.getWorldDirection(),200*mm);				
+				rotBox.rotation.copy(target.rotation);
+				rotBox.targeted = target;
+				rotBox.famType = "rotBox";
+				target.rotBox = rotBox;
+				scene.rotBox = rotBox;
+				
+				scene.add(rotBox);
+				//var 
+				
+				//need gui params? 
+				//save state camera zoom behind laser while setting?
+			}
+			
+			function removeRotBox(target=scene){
+				scene.remove(target.rotBox);
+				objects.pop();
+				//target.rotBox = null;
+				scene.rotBox.targeted.rotBox = null;
+				scene.rotBox = null;
+			}
+			
+			function onDocumentMouseMove( event ) {
+				//console.log("mouseMove");
+				event.preventDefault();
+
+				mouse.x = ( event.clientX / window.innerWidth ) * 2 - 1;
+				mouse.y = - ( event.clientY / window.innerHeight ) * 2 + 1;
+
+				raycaster.setFromCamera( mouse, camera );
+				//if(event.button != 0){
+				if ( SELECTED ) {
+
+					if ( raycaster.ray.intersectPlane( plane, intersection ) ) {
+
+						SELECTED.parent.position.copy( intersection.sub( offset ) );
+					/*	if(SELECTED.parent.famType == "laser" && SELECTED.parent.position.x+50*mm > lenses[0].position.x-lenses[0].rCurve[0]+lenses[0].d[0]){
+							//console.log("THIS FAR! AND NO FURTHER!");
+							SELECTED.parent.position.x = lenses[0].position.x-lenses[0].rCurve[0]+lenses[0].d[0]-50*mm;
+						}
+					*/	
+
+					}
+
+					return;
+
+				}
+				//console.log(objects);
+				var intersects = raycaster.intersectObjects( objects , true);
+				//console.log(intersects);
+				if ( intersects.length > 0 ) {
+				//	console.log(intersects);
+					if ( INTERSECTED != intersects[ 0 ].object ) {
+				//		console.log("2nd");
+						if ( INTERSECTED ) INTERSECTED.material.color.setHex( INTERSECTED.currentHex );
+							
+						INTERSECTED = intersects[ 0 ].object;
+						INTERSECTED.currentHex = INTERSECTED.material.color.getHex();
+
+						plane.setFromNormalAndCoplanarPoint(
+							camera.getWorldDirection( plane.normal ),
+							INTERSECTED.position );
+
+					}
+
+					container.style.cursor = 'pointer';
+
+				} else {
+
+					if ( INTERSECTED ) INTERSECTED.material.color.setHex( INTERSECTED.currentHex );
+
+					INTERSECTED = null;
+
+					container.style.cursor = 'auto';
+
+				}
+			//	}
+			}
+
+			function onDocumentMouseDown( event ) {
+				//console.log("mouseDown");
+				event.preventDefault();
+				//console.log(event);
+				raycaster.setFromCamera( mouse, camera );
+
+				var intersects = raycaster.intersectObjects( objects );
+				
+				if ( intersects.length > 0 ) {
+
+					controls.enabled = false;
+			//		guiParams.orbitControls = false;
+				//	for(var j=0; j<lasers.length; j++){
+				//		lasers[j].controls.enabled = false;
+			//		}
+
+					SELECTED = intersects[ 0 ].object;
+				//	console.log(event.button);
+				//	if(event.button ==0){
+				//		SELECTED.parent.controls.enabled = true;
+				//	}
+				//	else{
+					if ( raycaster.ray.intersectPlane( plane, intersection ) ) {
+
+						offset.copy( intersection ).sub( SELECTED.parent.position );
+						if(deleteMode){
+							removeObject(SELECTED.parent);
+							SELECTED = null;
+						}
+						//rotation.copy(SELECTED.parent.rotation);
+					}
+				//	}
+					container.style.cursor = 'move';
+
+				}
+				else{
+					if(scene.rotBox){
+				//console.log(scene.rotBox);
+					removeRotBox();
+					}
+				}
+
+			}
+
+			function onDocumentMouseUp( event ) {
+				//console.log("mouseUp");
+				event.preventDefault();
+
+				controls.enabled = guiParams.orbitControls;
+			////	if(SELECTED){
+			//		SELECTED.parent.controls.enabled=false;
+			//	}
+				if ( INTERSECTED ) {
+					if(SELECTED){
+						if( SELECTED.parent.famType == "laser"){
+						//console.log("clickedOnLaser");
+							//if(!SELECTED.parent.rotBox){
+								if(scene.rotBox){removeRotBox();}
+								createRotBox(SELECTED.parent);
+							//}
+						}
+						if(SELECTED.parent.famType == "lens" || SELECTED.parent.famType == "screen" ){
+							if(scene.rotBox){removeRotBox();}
+						}
+					}
+					SELECTED = null;
+
+				}
+				
+				container.style.cursor = 'auto';
+
+			}
+		/*	
+			function solveQuad(a,b,c){
+			console.log('a: ',a);
+				if(a > .000001){
+					console.log('aa: ', a);
+				return [ (-b + Math.sqrt(b*b-4*a*c))/(2*a),
+						(-b - Math.sqrt(b*b-4*a*c))/(2*a)] ;
+				}
+				else{return [ -c/b, -c/b]; }
+			}
+			*/
+			function solveT(a,h,rx,ry,rz,x,y,z,s){
+				var temp, coeff,rad, sol =[];
+				if(rz <0.0000001 && ry < 0.0000001){
+					sol.push(-(a*a*x-s*h*(y*y+z*z))/(a*a*rx));
+					sol.push(-(a*a*x-s*h*(y*y+z*z))/(a*a*rx));
+					//console.log(rz,ry);
+				}
+				else{
+					coeff = 1/(2*h*(ry*ry+rz*rz));
+					temp = s*a*a*rx-2*h*ry*y-2*h*rz*z;
+					rad = -4*(ry*z-rz*y)*(ry*z-rz*y)*h*h - s*4*a*a*(rx*ry*y+rx*rz*z-ry*ry*x-rz*rz*x)*h+a*a*a*a*rx*rx;
+					sol.push(coeff*(temp +Math.sqrt(rad)));
+					sol.push(coeff*(temp -Math.sqrt(rad)));
+				//	console.log(coeff,temp, Math.sqrt(rad));
+				}
+				return sol;
+			}
+			
+			function checkIntersect(las,lens,side=0){
+				var hit =false;
+				var rHat = las.getWorldDirection();
+				//var dX = lens.position.x - las.position.x;
+				var sgn = [(lensParam.concaveOne) ? (-1) : 1, lensParam.concaveTwo ? -1 : 1] ;
+				//point of plane intersection
+			/*	var plInt = new THREE.Vector3(lens.position.x, 
+										rHat.y*dX/rHat.x+las.position.y,
+										rHat.z*dX/rHat.x+las.position.z);
+			*/
+				//point of parabaloid intersection
+				//alpha = radius / sqrt(height)
+				var a = lens.radius;
+			//	console.log(lens.h);
+				var h = lens.h[side];
+				
+				
+				//var r_c = lens.rCurve[side], l_c = lens.radius;
+				var d = (side == 0)? 1 : -1;
+				var x = las.position.x - lens.position.x+d*sgn[side]*lens.h[side]+d*.5*lens.thickness;
+					y = las.position.y - lens.position.y,
+					z = las.position.z - lens.position.z;
+			//		console.log(las.position.x, lens.position.x, x);
+				/*var A = (rHat.z*rHat.z + rHat.y+rHat.y)/(rHat.x*rHat.x),
+					B = -2*(rHat.z+rHat.y)/rHat.x - alpha*alpha,  
+					C = x*alpha*alpha +z*z+y*y-x*2*(rHat.z+rHat.y)/rHat.x;
+		//		console.log(A,B,C);
+				var mu = solveQuad(A,B,C);
+				var t = [mu[0]/rHat.x, mu[1]/rHat.x]
+				*/
+				/*var A = rHat.y*rHat.y + rHat.z*rHat.z,
+				B = -alpha*alpha*rHat.x/lens.h[side]+2*rHat.y*y+2*rHat.z*z,
+				C = z*z+y*y-alpha*alpha*x;
+				var t = solveQuad(A,B,C);*/
+			/*	var A =  h*h*rHat.y*rHat.y + h*h*rHat.z*rHat.z,
+				B = -a*a*rHat.x*rHat.x - 2*h*rHat.x*(rHat.y*y +rHat.z*z) +2*h*x*(rHat.y*rHat.y + rHat.z*rHat.z),
+				C= rHat.x*rHat.x*(y*y+z*z)-2*rHat.x*(rHat.y*x*y+rHat.z*x*z)+x*x*(rHat.y*rHat.y+rHat.z*rHat.z);
+				//var t = solveQuad(A,B,C);
+			*/
+				var t = solveT(a,h,rHat.x,rHat.y,rHat.z,x,y,z, d*sgn[side]);
+				t = [t[0], t[1]];
+				//console.log(t);
+			//	t = [(-t[0]*h - x)/rHat.x,(-t[0]*h - x)/rHat.x]; 
+				//console.log(t,h,x,rHat.x);
+				var length;
+				//console.log("side: ", side, t);
+				if(!isNaN(t[0]) &&  !isNaN(t[1]) && (t[0]>0 || t[1]>0) ){
+				//	console.log(t,"INTERSECT, sphere",side);
+					
+				//	console.log(t[0],t[1]);
+					if(t[0]*sgn[side]>t[1]*sgn[side] && t[(side+1)%2]>0){
+						t=t[(side+1)%2];
+					}else{
+						t=t[side%2];
+					};
+					//console.log('t',t);
+				//	console.log(sgn[side],side,t);
+					var plInt = new THREE.Vector3(rHat.x*t + las.position.x, rHat.y*t + las.position.y, rHat.z*t+las.position.z); 
+					//console.log(plInt.x, lens.position.x, lens.position.x-.5*lens.thickness+Math.sqrt(r_c*r_c-l_c*l_c));
+					if(side == 0 && sgn[side]>0 && plInt.x <= lens.position.x - .5*lens.thickness || side == 0 && sgn[side]<0 && plInt.x >= lens.position.x - .5*lens.thickness || side == 1 && sgn[side]<0 && plInt.x <= lens.position.x + .5*lens.thickness || side == 1 && sgn[side]>0 && plInt.x >= lens.position.x + .5*lens.thickness){
+					//if(true){
+				//	console.log("INTERSECT, LENS",side);
+						hit = true;
+					//	console.log(hit);
+					//adjust impinging beam length
+						length = las.position.distanceTo(plInt);
+					
+					//add new beam 
+						createResPath(las,plInt,lens, side);						
+					//end lens loop
+					}
+					else{
+						length = 50*meters;
+					}
+				}
+				else{
+					length = 50*meters;
+				}
+				var oldImp = las.getObjectByName("beam");
+				var newImpMat = oldImp.material;
+				var newImpGeom = createBeamGeom(length);
+				var newImp = new THREE.Mesh(newImpGeom, newImpMat);
+				newImp.name = "beam";
+				las.remove(oldImp);
+				//console.log(oldImp);
+				oldImp.geometry.dispose();
+				oldImp.material.dispose();
+				las.add(newImp);
+				
+				return hit;
+				
+			}
+			
+			function updatePhysics(){
+				//check for laser-lens intersection
+				for(var i=0; i<lasers.length; i++){
+					clearResPath(lasers[i]);
+					for(var j=0; j<lenses.length; j++){
+						if(checkIntersect(lasers[i],lenses[j]))
+						{
+							break;
+						}	
+					}
+				}
+				
+				
+			}
+			
+			function clearResPath(las){
+			
+				if(las.res.length >0){
+					clearResPath(las.res[0]);
+					scene.remove(las.res[0]);
+					for(var i =0; i< las.res[0].children.length; i++){
+						las.res[0].children[i].geometry.dispose();
+						las.res[0].children[i].material.dispose();
+						
+					}
+					las.res.pop();
+				}
+				
+			}
+			
+			function gradient(lens,pos,side){
+				var b = 2*lens.h[side]/(lens.radius*lens.radius);
+				var grad = new THREE.Vector3(-lens.sgn[side], b*pos.y, b*pos.z);
+				grad.normalize();
+				return grad;
+			}
+			
+			function createResPath(imp,pos,lens, side)
+			{
+				var resLaser = createLaser(nohandle=true, color=imp.color);
+					imp.res.push(resLaser);
+							//set resulant beam's position and direction
+							
+					
+					
+					//angle... For now, assume thin lens? no...
+				var ratio = [1/lens.indexRef, lens.indexRef];
+				var tran = new THREE.Vector3();
+				var Incident = imp.getWorldDirection();
+				//var centOfCurv = new THREE.Object3D();
+				var sgn = [(lensParam.concaveOne) ? (-1) : 1, lensParam.concaveTwo ? -1 : 1] ;
+				//centOfCurv.position.set(lens.position.x, lens.position.y,lens.position.z);
+				//centOfCurv.lookAt(pos);
+				var iref =false;
+				var nLine = gradient(lens,pos,side);;
+				//if(side == 1){nLine.negate()};
+				if(sgn[side] <0){nLine.negate()};
+				if(lens.mirrored){
+					nLine.negate();
+					ratio = [1,1];
+				};
+				
+				//vector Snell's
+		
+				var cos = -Incident.dot(nLine);
+			//	console.log(cos);
+			
+				if((1-ratio[side]*ratio[side]*(1-cos*cos))<0){
+					console.log("TIR");
+					iref = true;
+					nLine.negate();
+					ratio = [1,1];
+					cos = -Incident.dot(nLine);
+					if(nevershown){
+						renderer.domElement.dispatchEvent(new MouseEvent('mouseup'));
+						controls.enabled = false;
+						//guiParams.orbitControls = false;
+						alert("TOTAL INTERNAL REFLECTION \n When light passes from a medium with higher refractive index to one of lower, a large enough angle of incidence will result in total internal reflection");
+						nevershown = false;
+						
+						
+					}
+				}
+				
+				tran.addVectors(Incident.multiplyScalar(ratio[side]), nLine.multiplyScalar( (ratio[side]*cos-Math.sqrt(1-ratio[side]*ratio[side]*(1-cos*cos))) ) );
+				
+				resLaser.lookAt(tran);
+				
+				resLaser.position.set(pos.x,pos.y,pos.z);		
+				
+				if(!iref){
+					scene.add(resLaser);
+				}
+				else if(side === 0){scene.add(resLaser)}
+				if(side ===0){
+					checkIntersect(resLaser,lens,1);
+				}
+				else{}
+			
+					
+			}
+			function createLaser(nohandle=false, color = 0xffffff){
+				var laser = new THREE.Object3D();
+			
+				laser.color = color;
+			 if(!nohandle){
+			
+				if(scene.rotBox){removeRotBox()};
+				var baseGeom = new THREE.CylinderGeometry(25*mm,25*mm,100*mm,15).rotateX(Math.PI/2);
+				var baseMat= new THREE.MeshPhongMaterial({
+					color: 0xc0c0c0,
+					emissive: 0x191919
+				});
+				var baseMesh = new THREE.Mesh(baseGeom, baseMat);
+				var beamGeom = new THREE.Geometry();
+				
+				var handGeom = new THREE.CylinderGeometry(27*mm,27*mm,50*mm,30).translate(0,-25*mm,0);
+				handGeom.merge(new THREE.CylinderGeometry(27*mm,27*mm, 15*mm, 30).translate(0,35*mm,0));
+				handGeom.rotateX(Math.PI/2);
+				var handMat = new THREE.MeshPhongMaterial({
+					color: 0x000000,
+					emissive: 0x000000
+				});				   
+				
+				var handMesh = new THREE.Mesh(handGeom,handMat);
+				 handMesh.parent = laser;
+				 baseMesh.parent = laser;
+				laser.add(baseMesh, handMesh);
+				 handMesh.updateMatrix();
+				baseMesh.updateMatrix();
+			
+			 }
+				var beamGeom = createBeamGeom(50*meters);
+				
+				var beamMat = new THREE.MeshLambertMaterial({
+					color: laser.color,
+					emissive: laser.color
+				});
+				
+				var beamMesh = new THREE.Mesh(beamGeom, beamMat);
+				//beamGeom.rotateX(Math.PI/2); 
+				beamMesh.name = "beam";
+				beamMesh.parent= laser;
+				beamMesh.updateMatrix();
+			
+				laser.add( beamMesh);
+				laser.res = [];
+			
+				laser.famType = "laser";
+				laser.rotBox = null;
+			
+				return laser;				
+			}
+			
+			function createBeamGeom(length){
+				var extrudeSettings = {
+					amount: length,
+					steps: 1,
+					bevelEnabled: false,
+					curveSegments: 30
+				};
+				
+				var arcShape= new THREE.Shape();
+				arcShape.absarc(0,0,10*mm,0,Math.PI*2,0,false);
+				
+				return new THREE.ExtrudeGeometry(arcShape, extrudeSettings);
+			}
+			function meshFunction(u0,v0){
+				//if(u0 <0){u0 =0;}
+				//if(u0 >100){u0=100;}
+				v0 = v0*2*Math.PI;
+				var h = (lensParam.h)
+				if(h == 0){
+					h=.001;
+				}
+				u0 = u0*h;
+				var x0=-h,y0=0,z0=0, alpha=lensParam.radius;
+				var x = u0+x0;
+				var y = alpha*Math.sqrt(u0/h)*Math.sin(v0)+y0;
+				var z = alpha*Math.sqrt(u0/h)*Math.cos(v0) + z0;
+				//console.log(u0, v0, [x,y,z]);
+				return new THREE.Vector3(x,y,z);
+				
+			}
+			function createLens(params = lensParam){
+				var lens = new THREE.Object3D;
+				lens.h = [params.h1,params.h2];
+				lens.indexRef = params.n;
+				lens.thickness = params.thick;
+				lens.radius = params.radius;
+				lens.mirrored = params.mirrored;
+				lens.sgn = [(params.concaveOne) ? (-1) : 1, params.concaveTwo ? -1 : 1] ;			
+				if(!lensParam.mirrored){
+					var glassMat = new THREE.MeshPhongMaterial({
+									color: 0x0000FF, 
+									emissive:0xc0c0c0, 
+									transparent:true,
+									side: THREE.DoubleSide,
+									opacity:.6
+									//opacity:1
+									});
+					
+					
+				}
+				else{
+					var glassMat =	new THREE.MeshPhongMaterial({
+										color: 0x0000FF, 
+										emissive:0xc0c0c0, 
+										transparent:true,
+										side: THREE.DoubleSide,
+										shininess:100,
+										opacity:.8
+									});	
+				}
+				
+				var glass = [new THREE.Object3D(), new THREE.Object3D(),new THREE.Object3D()];
+				lensParam.h = lens.h[0];
+				glass[0].add(new THREE.Mesh(new THREE.ParametricGeometry(meshFunction,30,30), glassMat));
+				lensParam.h = lens.h[1];
+				glass[1].add(new THREE.Mesh(new THREE.ParametricGeometry(meshFunction,30,30), glassMat));
+				glass[2].add(	new THREE.Mesh(
+								new THREE.CylinderGeometry(lens.radius,lens.radius,lens.thickness,25, 1,true),
+								new THREE.MeshPhongMaterial({
+									color: 0x0000FF, 
+									emissive:0xc0c0c0, 
+									transparent:true,
+									side: THREE.DoubleSide,
+									opacity:.2
+									//opacity:1
+									})
+								));
+			
+				if(lens.sgn[0] <0 ){
+					glass[0].lookAt(glass[0].getWorldDirection().negate());
+				}
+				if(lens.sgn[1] >0 ){
+					glass[1].lookAt(glass[1].getWorldDirection().negate());
+				}
+				lens.add(glass[0].translateX(-lens.sgn[0]*.5*lens.thickness)); 
+				if(!lens.mirrored){
+					lens.add(glass[1].translateX(-lens.sgn[1]*.5*lens.thickness));
+					if(lens.thickness >0){
+					lens.add(glass[2].rotateZ(Math.PI/2));
+					}
+				}
+			
+				lens.translateX(meters);
+				//scene.add(lens);
+				//lens.focalLength = 1*meters;
+				
+				lens.famType = "lens";
+				return lens;
+			}
+			
+			function updateLocation(la,le,sc){
+			/*	for(var k=0; k<le.length; k++){
+					if(le[k].position.x + le[k].rCurve[1]+le[0].d[1] > sc.position.x){
+						le[k].position.x = sc.position.x-le[k].rCurve[1]-le[0].d[1];
+					}
+				}
+			*/
+				for(var i=0; i<la.length;i++){
+					if( la[i].position.x+50*mm > le[0].position.x- le[0].sgn[0]*le[0].h[0]-.5*le[0].thickness){
+						la[i].position.x = le[0].position.x - le[0].sgn[0]*le[0].h[0] - 50*mm-.5*le[0].thickness;
+					}
+				}
+			}
+			function render(){
+				requestAnimationFrame(render);
+				if(controls.enabled){
+					controls.update();
+				}
+				if(INTERSECTED && SELECTED && SELECTED.parent && SELECTED.parent.famType =="rotBox"){
+					SELECTED.parent.targeted.lookAt(SELECTED.parent.position);
+				}
+				updatePhysics();
+				updateLocation(lasers, lenses, screen);
+				renderer.render(scene, camera);
+			}
+		}	
+			</script>
+		</body>
+	</html>
